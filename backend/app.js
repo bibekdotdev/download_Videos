@@ -7,15 +7,18 @@ const app = express();
 
 let progressClients = [];
 let startTime = null;
+const cors = require("cors");
+
 const FRONTEND_ORIGIN = "https://download-videos-uv7k.onrender.com";
 
 app.use(
   cors({
     origin: FRONTEND_ORIGIN,
     methods: ["GET", "POST", "OPTIONS"],
-    credentials: true,
+    credentials: false, // or true if you need cookies
   })
 );
+
 app.use(express.json());
 // SSE endpoint for progress updates
 app.get("/progress", (req, res) => {
