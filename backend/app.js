@@ -7,7 +7,7 @@ const app = express();
 
 const FRONTEND_ORIGIN = "https://download-videos-uv7k.onrender.com";
 
-// Enable CORS for your frontend only
+// Enable CORS for frontend origin
 app.use(
   cors({
     origin: FRONTEND_ORIGIN,
@@ -16,7 +16,7 @@ app.use(
   })
 );
 
-// Handle OPTIONS preflight requests globally
+// Handle OPTIONS preflight requests for all routes
 app.options("*", cors());
 
 // Middleware to add CORS headers on all responses
@@ -33,13 +33,13 @@ app.use((req, res, next) => {
 let progressClients = [];
 let startTime = null;
 
-// SSE progress endpoint
+// SSE endpoint for progress updates
 app.get("/progress", (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
 
-  // Explicit CORS headers for SSE
+  // Important: Set CORS headers explicitly for SSE endpoint
   res.setHeader("Access-Control-Allow-Origin", FRONTEND_ORIGIN);
   res.setHeader("Access-Control-Allow-Credentials", "true");
 
@@ -52,7 +52,7 @@ app.get("/progress", (req, res) => {
   });
 });
 
-// Send progress updates
+// Send progress data to all connected SSE clients
 function sendProgress(progress) {
   progressClients.forEach((client) => {
     client.write(`data: ${JSON.stringify(progress)}\n\n`);
