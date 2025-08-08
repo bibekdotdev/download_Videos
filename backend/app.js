@@ -16,6 +16,7 @@ app.use(
     credentials: true,
   })
 );
+app.use(express.json());
 // SSE endpoint for progress updates
 app.get("/progress", (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
