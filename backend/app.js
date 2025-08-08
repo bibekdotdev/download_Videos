@@ -7,7 +7,6 @@ const app = express();
 
 let progressClients = [];
 let startTime = null;
-const cors = require("cors");
 
 const FRONTEND_ORIGIN = "https://download-videos-uv7k.onrender.com";
 
