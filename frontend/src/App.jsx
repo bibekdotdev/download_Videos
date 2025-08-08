@@ -28,6 +28,7 @@ export default function App() {
 
     // Listen to progress events from backend
    const eventSource = new EventSource("https://download-videosb.onrender.com/progress");
+
     eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
