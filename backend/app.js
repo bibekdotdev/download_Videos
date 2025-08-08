@@ -2,10 +2,11 @@ const express = require("express");
 const cors = require("cors");
 const { spawn } = require("child_process");
 const fs = require("fs");
-const path = require("path");
 
 const app = express();
 
+let progressClients = [];
+let startTime = null;
 const FRONTEND_ORIGIN = "https://download-videos-uv7k.onrender.com";
 
 app.use(
@@ -15,60 +16,43 @@ app.use(
     credentials: true,
   })
 );
-app.options("*", cors());
-
-app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", FRONTEND_ORIGIN);
-  res.header("Access-Control-Allow-Credentials", "true");
-  res.header(
-    "Access-Control-Allow-Headers",
-    "Origin, X-Requested-With, Content-Type, Accept"
-  );
-  next();
-});
-
-// To manage one progress stream at a time for simplicity
-let sseClient = null;
-
+// SSE endpoint for progress updates
 app.get("/progress", (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
-  res.setHeader("Access-Control-Allow-Origin", FRONTEND_ORIGIN);
-  res.setHeader("Access-Control-Allow-Credentials", "true");
-
   res.flushHeaders();
 
-  sseClient = res;
+  progressClients.push(res);
 
   req.on("close", () => {
-    sseClient = null;
+    progressClients = progressClients.filter((client) => client !== res);
   });
 });
 
-function sendProgress(data) {
-  if (sseClient) {
-    sseClient.write(`data: ${JSON.stringify(data)}\n\n`);
-  }
+// Send progress to all connected SSE clients
+function sendProgress(progress) {
+  progressClients.forEach((client) => {
+    client.write(`data: ${JSON.stringify(progress)}\n\n`);
+  });
 }
 
+// Download route
 app.get("/download", (req, res) => {
   const videoUrl = req.query.url;
-  if (!videoUrl) {
-    res.status(400).send("No URL provided");
-    return;
-  }
+  if (!videoUrl) return res.status(400).send("No URL provided");
 
   const timestamp = Date.now();
   const fileName = `video_${timestamp}.mp4`;
-  const filePath = path.join(__dirname, fileName);
-  const startTime = Date.now();
 
+  startTime = Date.now();
+
+  // Run yt-dlp command
   const ytdlp = spawn("yt-dlp", ["-o", fileName, videoUrl]);
 
   ytdlp.stdout.on("data", (data) => {
     const output = data.toString();
-    const match = output.match(/(\d+\.\d)%/);
+    const match = output.match(/(\d+\.\d)%/); // match "12.3%"
     if (match) {
       const percent = parseFloat(match[1]);
       sendProgress({ progress: percent });
@@ -89,30 +73,19 @@ app.get("/download", (req, res) => {
   ytdlp.on("close", (code) => {
     if (code !== 0) {
       sendProgress({ error: "Download failed or unsupported link" });
-      if (!res.headersSent) res.status(500).send("Download failed");
-      cleanupFile(filePath);
-      return;
+      return res.status(500).send("Download failed");
     }
 
     const timeTaken = ((Date.now() - startTime) / 1000).toFixed(2);
     sendProgress({ progress: 100, time: timeTaken });
 
-    // Send the downloaded file as response
-    res.download(filePath, fileName, (err) => {
-      if (err) {
-        console.error("Error sending file:", err);
-        if (!res.headersSent) res.status(500).send("Error sending file");
-      }
-      cleanupFile(filePath);
+    res.download(fileName, () => {
+      fs.unlinkSync(fileName); // Delete after sending
     });
   });
-
-  function cleanupFile(pathToFile) {
-    fs.unlink(pathToFile, (err) => {
-      if (err) console.error("Error deleting file:", err);
-    });
-  }
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
