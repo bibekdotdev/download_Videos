@@ -4,7 +4,15 @@ const { spawn } = require("child_process");
 const fs = require("fs");
 
 const app = express();
-app.use(cors());
+
+// Enable CORS only for your frontend domain
+app.use(
+  cors({
+    origin: "https://download-videos-uv7k.onrender.com",
+    methods: ["GET", "POST"],
+    credentials: true,
+  })
+);
 
 let progressClients = [];
 let startTime = null;
@@ -14,6 +22,11 @@ app.get("/progress", (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
+
+  // Explicit CORS headers for SSE
+  res.setHeader("Access-Control-Allow-Origin", "https://download-videos-uv7k.onrender.com");
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+
   res.flushHeaders();
 
   progressClients.push(res);
