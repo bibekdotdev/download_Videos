@@ -5,14 +5,30 @@ const fs = require("fs");
 
 const app = express();
 
-// Enable CORS only for your frontend domain
+const FRONTEND_ORIGIN = "https://download-videos-uv7k.onrender.com";
+
+// CORS middleware with explicit origin and credentials
 app.use(
   cors({
-    origin: "https://download-videos-uv7k.onrender.com",
-    methods: ["GET", "POST"],
+    origin: FRONTEND_ORIGIN,
+    methods: ["GET", "POST", "OPTIONS"],
     credentials: true,
   })
 );
+
+// Handle OPTIONS preflight for all routes
+app.options("*", cors());
+
+// Middleware to add CORS headers manually to every response (including errors)
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", FRONTEND_ORIGIN);
+  res.header("Access-Control-Allow-Credentials", "true");
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Origin, X-Requested-With, Content-Type, Accept"
+  );
+  next();
+});
 
 let progressClients = [];
 let startTime = null;
@@ -22,9 +38,8 @@ app.get("/progress", (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
-
   // Explicit CORS headers for SSE
-  res.setHeader("Access-Control-Allow-Origin", "https://download-videos-uv7k.onrender.com");
+  res.setHeader("Access-Control-Allow-Origin", FRONTEND_ORIGIN);
   res.setHeader("Access-Control-Allow-Credentials", "true");
 
   res.flushHeaders();
@@ -36,7 +51,7 @@ app.get("/progress", (req, res) => {
   });
 });
 
-// Send progress to all connected SSE clients
+// Helper to send progress to all SSE clients
 function sendProgress(progress) {
   progressClients.forEach((client) => {
     client.write(`data: ${JSON.stringify(progress)}\n\n`);
@@ -45,50 +60,68 @@ function sendProgress(progress) {
 
 // Download route
 app.get("/download", (req, res) => {
-  const videoUrl = req.query.url;
-  if (!videoUrl) return res.status(400).send("No URL provided");
-
-  const timestamp = Date.now();
-  const fileName = `video_${timestamp}.mp4`;
-
-  startTime = Date.now();
-
-  // Run yt-dlp command
-  const ytdlp = spawn("yt-dlp", ["-o", fileName, videoUrl]);
-
-  ytdlp.stdout.on("data", (data) => {
-    const output = data.toString();
-    const match = output.match(/(\d+\.\d)%/); // match "12.3%"
-    if (match) {
-      const percent = parseFloat(match[1]);
-      sendProgress({ progress: percent });
-    }
-  });
-
-  ytdlp.stderr.on("data", (data) => {
-    const output = data.toString();
-    const match = output.match(/(\d+\.\d)%/);
-    if (match) {
-      const percent = parseFloat(match[1]);
-      sendProgress({ progress: percent });
-    } else if (output.toLowerCase().includes("error")) {
-      sendProgress({ error: "Download failed for this link" });
-    }
-  });
-
-  ytdlp.on("close", (code) => {
-    if (code !== 0) {
-      sendProgress({ error: "Download failed or unsupported link" });
-      return res.status(500).send("Download failed");
+  try {
+    const videoUrl = req.query.url;
+    if (!videoUrl) {
+      res.status(400).send("No URL provided");
+      return;
     }
 
-    const timeTaken = ((Date.now() - startTime) / 1000).toFixed(2);
-    sendProgress({ progress: 100, time: timeTaken });
+    const timestamp = Date.now();
+    const fileName = `video_${timestamp}.mp4`;
 
-    res.download(fileName, () => {
-      fs.unlinkSync(fileName); // Delete after sending
+    startTime = Date.now();
+
+    // Run yt-dlp command
+    const ytdlp = spawn("yt-dlp", ["-o", fileName, videoUrl]);
+
+    ytdlp.stdout.on("data", (data) => {
+      const output = data.toString();
+      const match = output.match(/(\d+\.\d)%/); // match "12.3%"
+      if (match) {
+        const percent = parseFloat(match[1]);
+        sendProgress({ progress: percent });
+      }
     });
-  });
+
+    ytdlp.stderr.on("data", (data) => {
+      const output = data.toString();
+      const match = output.match(/(\d+\.\d)%/);
+      if (match) {
+        const percent = parseFloat(match[1]);
+        sendProgress({ progress: percent });
+      } else if (output.toLowerCase().includes("error")) {
+        sendProgress({ error: "Download failed for this link" });
+      }
+    });
+
+    ytdlp.on("close", (code) => {
+      if (code !== 0) {
+        sendProgress({ error: "Download failed or unsupported link" });
+        if (!res.headersSent) res.status(500).send("Download failed");
+        return;
+      }
+
+      const timeTaken = ((Date.now() - startTime) / 1000).toFixed(2);
+      sendProgress({ progress: 100, time: timeTaken });
+
+      res.download(fileName, (err) => {
+        if (err) {
+          console.error("Error sending file:", err);
+          if (!res.headersSent) res.status(500).send("Error sending file");
+        }
+        try {
+          fs.unlinkSync(fileName); // Delete file after sending
+        } catch (unlinkErr) {
+          console.error("Error deleting file:", unlinkErr);
+        }
+      });
+    });
+  } catch (err) {
+    console.error("Server error:", err);
+    if (!res.headersSent) res.status(500).send("Internal server error");
+  }
 });
 
-app.listen(5000, () => console.log("Server running on http://localhost:5000"));
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
