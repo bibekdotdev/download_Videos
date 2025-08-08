@@ -7,7 +7,7 @@ const app = express();
 
 const FRONTEND_ORIGIN = "https://download-videos-uv7k.onrender.com";
 
-// CORS middleware with explicit origin and credentials
+// Enable CORS for your frontend only
 app.use(
   cors({
     origin: FRONTEND_ORIGIN,
@@ -16,10 +16,10 @@ app.use(
   })
 );
 
-// Handle OPTIONS preflight for all routes
+// Handle OPTIONS preflight requests globally
 app.options("*", cors());
 
-// Middleware to add CORS headers manually to every response (including errors)
+// Middleware to add CORS headers on all responses
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", FRONTEND_ORIGIN);
   res.header("Access-Control-Allow-Credentials", "true");
@@ -33,11 +33,12 @@ app.use((req, res, next) => {
 let progressClients = [];
 let startTime = null;
 
-// SSE endpoint for progress updates
+// SSE progress endpoint
 app.get("/progress", (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
+
   // Explicit CORS headers for SSE
   res.setHeader("Access-Control-Allow-Origin", FRONTEND_ORIGIN);
   res.setHeader("Access-Control-Allow-Credentials", "true");
@@ -51,7 +52,7 @@ app.get("/progress", (req, res) => {
   });
 });
 
-// Helper to send progress to all SSE clients
+// Send progress updates
 function sendProgress(progress) {
   progressClients.forEach((client) => {
     client.write(`data: ${JSON.stringify(progress)}\n\n`);
@@ -72,12 +73,11 @@ app.get("/download", (req, res) => {
 
     startTime = Date.now();
 
-    // Run yt-dlp command
     const ytdlp = spawn("yt-dlp", ["-o", fileName, videoUrl]);
 
     ytdlp.stdout.on("data", (data) => {
       const output = data.toString();
-      const match = output.match(/(\d+\.\d)%/); // match "12.3%"
+      const match = output.match(/(\d+\.\d)%/);
       if (match) {
         const percent = parseFloat(match[1]);
         sendProgress({ progress: percent });
@@ -111,7 +111,7 @@ app.get("/download", (req, res) => {
           if (!res.headersSent) res.status(500).send("Error sending file");
         }
         try {
-          fs.unlinkSync(fileName); // Delete file after sending
+          fs.unlinkSync(fileName);
         } catch (unlinkErr) {
           console.error("Error deleting file:", unlinkErr);
         }
